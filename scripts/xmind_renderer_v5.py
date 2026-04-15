@@ -81,6 +81,7 @@ matplotlib.use('Agg')   # 非交互式后端，适合批量生成文件，无需
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.path as mpath
+import matplotlib.colors as mcolors
 from matplotlib import font_manager
 
 
@@ -90,38 +91,63 @@ from matplotlib import font_manager
 
 INPUT_FILE  = "../学海计划.xmind"   # 默认 XMind 文件路径（可被命令行 -i 覆盖）
 OUTPUT_DIR  = "../maps"     # 默认输出目录（可被命令行 -o 覆盖）
-DPI         = 120                # 图片分辨率（每英寸点数），建议 100~150
-FONT_NAME   = "PingFang SC" # 渲染中文使用的字体英文名
+DPI         = 130                # 图片分辨率（每英寸点数），建议 100~150
+FONT_NAME   = "WF Visual Sans Variable" # Webflow 统一字体
 FONT_FILE   = ""            # 可选：直接指定字体文件绝对路径（优先级高于 FONT_NAME）
 FONT_FALLBACKS = [          # FONT_NAME 不可用时自动回退（按顺序尝试）
+    "PingFang SC",
     "Hiragino Sans GB",
     "Songti SC",
     "Heiti SC",
+    "Arial",
     "Arial Unicode MS",
     "Noto Sans CJK SC",
     "Microsoft YaHei",
 ]
 
-# 各一级分支的颜色，按顺序循环分配
+# Webflow 视觉 token
+PRIMARY_BLUE = "#146EF5"
+PRIMARY_BLUE_HOVER = "#0055D4"
+BLUE_400 = "#3B89FF"
+BLUE_300 = "#006ACC"
+SECONDARY_COLORS = ["#7A3DFF", "#ED52CB", "#00D722", "#FF6B00", "#FFAE13", "#EE1D36"]
+CANVAS_BG = "#FFFFFF"
+TEXT_PRIMARY = "#080808"
+TEXT_SECONDARY = "#363636"
+TEXT_MUTED = "#5A5A5A"
+BORDER_GRAY = "#D8D8D8"
+BORDER_HOVER = "#898989"
+
+# 各一级分支的颜色，按顺序循环分配（遵循 DESIGN.md 的 PRIMARY + SECONDARY）
 BRANCH_COLORS = [
-    "#E07020", "#2B7FC4", "#3AAB5A",
-    "#C43B6E", "#8B5CF6", "#0891B2", "#D97706",
-    "#E53E3E", "#38A169", "#B45309", "#0E7490",
+    PRIMARY_BLUE,
+    *SECONDARY_COLORS,
+    BLUE_400,
+    BLUE_300,
 ]
 
 # 节点颜色配置
-ROOT_BG = "#F0F4F8"   # 根节点背景色
-ROOT_FG = "#1E293B"   # 根节点文字色
-NODE_BG = "#FFFFFF"   # 路径节点背景色
-NODE_FG = "#334155"   # 路径节点文字色
-HERE_BG = "#FEF3C7"   # "You are here" 节点背景色（黄色）
-HERE_FG = "#92400E"   # "You are here" 节点文字色
-HERE_BD = "#F59E0B"   # "You are here" 节点边框色
-TGT_FG  = "#1E293B"   # 当前目标节点文字色
+ROOT_BG = PRIMARY_BLUE
+ROOT_FG = "#FFFFFF"
+NODE_BG = CANVAS_BG
+NODE_FG = TEXT_PRIMARY
+HERE_BG = "#FFF5D9"
+HERE_FG = TEXT_PRIMARY
+HERE_BD = "#FFAE13"
+TGT_FG  = TEXT_PRIMARY
+NODE_PAD = 0.035
+NODE_RADIUS = 0.05
+SHADOW_LAYERS = [
+    (0.00, -0.16, 0.06, 0.00),
+    (0.00, -0.12, 0.05, 0.01),
+    (0.00, -0.08, 0.04, 0.04),
+    (0.00, -0.05, 0.03, 0.08),
+    (0.00, -0.02, 0.02, 0.09),
+]
 
 # 布局参数
-X_GAP    = 2.2    # 相邻层级节点之间的水平间距（单位：matplotlib 坐标）
-Y_MIN_SH = 0.55   # 每个节点最小纵向占用空间，防止节点过于紧密
+X_GAP    = 2.25   # 相邻层级节点之间的水平间距（单位：matplotlib 坐标）
+Y_MIN_SH = 0.58   # 每个节点最小纵向占用空间，防止节点过于紧密
 MAX_WRAP = 15     # 超过此字符数的标题自动折行
 Y_UNIT   = 0.42   # y 坐标范围转换为英寸的系数，影响图片高度
 
@@ -130,6 +156,18 @@ Y_UNIT   = 0.42   # y 坐标范围转换为英寸的系数，影响图片高度
 
 # 运行时解析后的字体对象（由 main() 初始化）
 FONT_PROP = None
+
+
+def rgba(color, alpha=1.0):
+    """Return RGBA tuple based on any matplotlib-supported color."""
+    r, g, b, _ = mcolors.to_rgba(color)
+    return (r, g, b, alpha)
+
+
+def tint(color, amount):
+    """Blend color toward white by amount (0~1)."""
+    r, g, b, _ = mcolors.to_rgba(color)
+    return (r + (1 - r) * amount, g + (1 - g) * amount, b + (1 - b) * amount, 1.0)
 
 
 def resolve_font():
@@ -529,12 +567,12 @@ def node_box_size(n):
     fs    = 14 if depth == 0 else (10 if depth == 1 else 9)  # 各深度字号
     label = wrap_text(title)
     lines = label.split("\n")
-    cw = fs * 0.013   # 单个字符的估算宽度（经验值）
-    ch = fs * 0.024   # 单行文字的估算高度（经验值）
-    bw = max(max(len(l) for l in lines) * cw + 0.28, 0.6)   # 宽 = 最长行宽 + 内边距
-    bh = max(len(lines) * ch + 0.18, 0.34)                   # 高 = 行数 × 行高 + 内边距
+    cw = fs * 0.0135  # 单个字符的估算宽度（经验值）
+    ch = fs * 0.0245  # 单行文字的估算高度（经验值）
+    bw = max(max(len(l) for l in lines) * cw + 0.34, 0.66)   # 宽 = 最长行宽 + 内边距
+    bh = max(len(lines) * ch + 0.20, 0.36)                    # 高 = 行数 × 行高 + 内边距
     if depth == 0:
-        bw = max(bw, 1.1); bh = max(bh, 0.50)   # 根节点有最小尺寸限制
+        bw = max(bw, 1.20); bh = max(bh, 0.54)   # 根节点有最小尺寸限制
     return bw, bh, label
 
 
@@ -558,14 +596,14 @@ def draw_edges(ax, t):
 
     连线风格：采用"主干+分支"路由——
       1. 从父节点边框外侧出发（偏移 0.06 避免与边框重叠）
-      2. 快速走到靠近父节点的主干位置（trunk_x，约在父子之间 15% 处）
+      2. 快速走到靠近父节点的主干位置（trunk_x，约在父子之间 18% 处）
       3. 沿主干垂直走到子节点所在的 y 坐标
       4. 水平接入子节点边框外侧（同样偏移 0.06）
     这种路由方式使所有子节点的连线共用一段竖直主干，
     避免曲线横向幅度过大、穿过兄弟节点方框的问题。
 
-    路径上的连线（on_path=True）：加粗（lw=2.2）且不透明
-    非路径连线：细（lw=1.0）且半透明（alpha=0.35）
+    路径上的连线（on_path=True）：使用品牌主蓝并加粗
+    非路径连线：使用分支色并降低透明度
     """
     px, py = t["x"], t["y"]
     p_bw   = t.get("bw", 0.6)   # 父节点宽度（precompute_boxes 后才有）
@@ -576,9 +614,8 @@ def draw_edges(ax, t):
         side   = k["side"]
 
         on_path = k["on_path"] or k["is_here"] or k["is_target"]
-        color = k["bc"]
-        lw    = 2.2 if on_path else 1.0
-        alpha = 1.0 if on_path else 0.35
+        color = PRIMARY_BLUE if on_path else rgba(k["bc"], 0.38)
+        lw    = 2.0 if on_path else 1.15
 
         # 起止点各偏移 0.06，避免线头与方框边线重叠
         if side == "right":
@@ -588,8 +625,8 @@ def draw_edges(ax, t):
             x_start = px - p_bw / 2 - 0.06   # 父节点左边框外侧
             x_end   = cx + k_bw / 2 + 0.06   # 子节点右边框外侧
 
-        # trunk_x：主干所在的 x 位置，紧贴父节点，占父子间距的 15%
-        trunk_ratio = 0.15
+        # trunk_x：主干所在的 x 位置，紧贴父节点，占父子间距的 18%
+        trunk_ratio = 0.18
         trunk_x = x_start + (x_end - x_start) * trunk_ratio
 
         # 贝塞尔曲线四个控制点：
@@ -608,25 +645,42 @@ def draw_edges(ax, t):
         ax.add_patch(mpatches.PathPatch(
             mpath.Path(verts, codes),
             facecolor="none", edgecolor=color,
-            lw=lw, alpha=alpha, zorder=1
+            lw=lw, alpha=1.0, zorder=1, capstyle="round", joinstyle="round"
         ))
         draw_edges(ax, k)   # 递归绘制子节点的连线
 
 
 # ── 绘制节点 ──────────────────────────────────────────────────────────────────
 
+def draw_webflow_shadow(ax, x, y, bw, bh, emphasize=False):
+    """Draw a compact 5-layer shadow stack inspired by Webflow cards."""
+    from matplotlib.patches import FancyBboxPatch
+
+    strength = 1.0 if emphasize else 0.78
+    for dx, dy, expand, alpha in SHADOW_LAYERS:
+        layer_alpha = alpha * strength
+        if layer_alpha <= 0:
+            continue
+        ax.add_patch(FancyBboxPatch(
+            (x - bw / 2 - expand + dx, y - bh / 2 - expand + dy),
+            bw + expand * 2,
+            bh + expand * 2,
+            boxstyle=f"round,pad={NODE_PAD},rounding_size={NODE_RADIUS}",
+            facecolor=rgba("#000000", layer_alpha),
+            edgecolor="none",
+            zorder=1.5,
+        ))
+
+
 def draw_node(ax, n):
     """
     绘制单个节点的矩形框和文字标签。
 
-    节点视觉状态分五种：
-      1. You are here 节点  : 黄色背景，橙色边框
-      2. 根节点（depth=0）  : 浅灰蓝背景，深色文字，明显边框
-      3. 目标节点（当前位置）: 分支色淡底，深色文字，加粗边框 + 外发光效果
-      4. 路径节点（祖先）   : 白色背景，深色文字，分支色边框
-      5. 折叠节点（其他）   : 分支色极淡底色，分支色文字，半透明边框
-
-    目标节点额外绘制一个微微放大的发光边框（alpha=0.3），增强视觉焦点。
+    采用 Webflow 风格的节点系统：
+      - 白色卡片 + 灰色边框
+      - 主蓝强调当前路径/焦点
+      - 二级色用于折叠节点的弱提示
+      - 5 层级联阴影提供层次感
     """
     from matplotlib.patches import FancyBboxPatch
 
@@ -641,42 +695,52 @@ def draw_node(ax, n):
     label     = n["label"]        # 折行后的标签文字
 
     fs = 14 if depth == 0 else (10 if depth == 1 else 9)   # 字号
-    fw = "bold" if (depth <= 1 or is_target or on_path) else "normal"   # 字重
-    fa = 1.0 if (on_path or depth == 0 or is_here or is_target) else 0.85  # 透明度
+    if depth == 0:
+        fw = 600
+    elif depth == 1 or is_target:
+        fw = 550
+    elif on_path:
+        fw = 500
+    else:
+        fw = 450
+    fa = 1.0 if (on_path or depth == 0 or is_here or is_target) else 0.92  # 透明度
 
     # 根据节点状态选择颜色方案
     if is_here:
-        # "You are here" 标注：黄底橙框
-        bg, fg, bd, lw_box = HERE_BG, HERE_FG, HERE_BD, 1.8
+        # "You are here" 标注：黄底橙框，保持强提示
+        bg, fg, bd, lw_box = HERE_BG, HERE_FG, HERE_BD, 1.6
     elif depth == 0:
-        # 根节点：浅蓝灰底，深色字
-        bg, fg, bd, lw_box = ROOT_BG, ROOT_FG, "#94A3B8", 1.8
+        # 根节点：品牌主蓝
+        bg, fg, bd, lw_box = ROOT_BG, ROOT_FG, PRIMARY_BLUE_HOVER, 1.9
     elif is_target:
-        # 目标节点（当前位置）：分支色极淡底（22 = 约 13% 透明度），加粗边框
-        bg = bc + "22"; fg, bd, lw_box = TGT_FG, bc, 2.5
+        # 目标节点（当前位置）：白底 + 主蓝边框
+        bg, fg, bd, lw_box = CANVAS_BG, TGT_FG, PRIMARY_BLUE, 2.2
     elif on_path:
-        # 路径祖先节点：白底，分支色半透明边框
-        bg, fg, bd, lw_box = NODE_BG, NODE_FG, bc + "88", 1.4
+        # 路径祖先节点：白底 + 主蓝弱边框
+        bg, fg, bd, lw_box = NODE_BG, NODE_FG, rgba(PRIMARY_BLUE, 0.62), 1.4
     else:
-        # 折叠的非路径节点：分支色淡底（30 = 约 19% 透明度），有颜色但明显偏淡
-        bg = bc + "30"
-        fg = bc           # 文字用分支色，保持可读性
-        bd = bc + "88"    # 边框用半透明分支色
+        # 折叠节点：分支色浅底，避免视觉抢占
+        bg = tint(bc, 0.92)
+        fg = TEXT_SECONDARY
+        bd = rgba(bc, 0.42)
         lw_box = 1.0
+
+    draw_webflow_shadow(ax, x, y, bw, bh, emphasize=(depth <= 1 or is_target or on_path or is_here))
 
     # 目标节点：绘制外发光圈（放大 0.07 的同色圆角矩形，低透明度）
     if is_target:
         ax.add_patch(FancyBboxPatch(
             (x - bw/2 - 0.07, y - bh/2 - 0.07), bw + 0.14, bh + 0.14,
-            boxstyle="round,pad=0.05", facecolor="none", edgecolor=bc,
-            linewidth=3.0, alpha=0.3, zorder=1
+            boxstyle=f"round,pad={NODE_PAD},rounding_size={NODE_RADIUS}",
+            facecolor="none", edgecolor=rgba(PRIMARY_BLUE, 0.24),
+            linewidth=3.0, alpha=1.0, zorder=1.8
         ))
 
     # 主矩形框
     ax.add_patch(FancyBboxPatch(
         (x - bw/2, y - bh/2), bw, bh,
-        boxstyle="round,pad=0.05",
-        facecolor=bg, edgecolor=bd, linewidth=lw_box, zorder=2
+        boxstyle=f"round,pad={NODE_PAD},rounding_size={NODE_RADIUS}",
+        facecolor=bg, edgecolor=bd, linewidth=lw_box, zorder=2.2
     ))
 
     # 文字标签（居中对齐，z-order 最高确保在框上方）
@@ -740,7 +804,8 @@ def render(root_json, target_path, side_map, out_path):
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.axis("off")                         # 隐藏坐标轴
-    fig.patch.set_facecolor("#F8FAFC")     # 图片背景色（极浅灰白）
+    fig.patch.set_facecolor(CANVAS_BG)     # 图片背景色
+    ax.set_facecolor(CANVAS_BG)
 
     draw_edges(ax, layout)
     for n in nodes:
@@ -920,3 +985,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
