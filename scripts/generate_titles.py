@@ -64,6 +64,8 @@
 #   修改下方"配置区"中的变量即可调整字体、尺寸、颜色等。
 # =============================================================================
 
+from __future__ import annotations
+
 import os
 import sys
 import argparse
@@ -203,7 +205,7 @@ def filter_items_by_prefix(items: list[tuple], path_expr: str, sheet_hint: str =
     """
     按路径前缀筛选 XMind 条目。
     每个 item 结构为：
-      (sheet_name, topic, path_parts, folder_parts, is_non_leaf)
+      (sheet_name, topic, path_parts, folder_parts, is_non_leaf, raw_title)
     返回：(过滤后条目, 命中的前缀片段列表)。
 
     匹配策略：
@@ -215,7 +217,7 @@ def filter_items_by_prefix(items: list[tuple], path_expr: str, sheet_hint: str =
         return items, []
 
     roots = []
-    for _, _, path_parts, _, _ in items:
+    for _, _, path_parts, _, _, _ in items:
         if path_parts:
             root = path_parts[0]
             if root not in roots:
@@ -274,14 +276,14 @@ def merge_sheet_and_tree_folders(sheet_name: str, tree_folders: list[str]) -> li
     parts = [sheet_name, *(tree_folders or [])]
     parts = [p for p in parts if p]
     if len(parts) >= 2:
-        a = sanitize(strip_parenthesized(parts[0]))
-        b = sanitize(strip_parenthesized(parts[1]))
+        a = sanitize(parts[0])
+        b = sanitize(parts[1])
         if a == b:
             parts.pop(1)
     return parts
 
 
-def save_image(img: Image.Image, topic: str, subfolders: list[str] | None = None) -> str:
+def save_image(img: Image.Image, topic: str, subfolders: list[str] | None = None, filename_topic: str | None = None) -> str:
     """
     将图片保存到指定位置。
 
@@ -289,6 +291,7 @@ def save_image(img: Image.Image, topic: str, subfolders: list[str] | None = None
       img       - 已生成的 PIL Image 对象
       topic     - 主题文字（用于图片第二行展示）
       subfolders - 输出目录片段列表（会依次拼接为树形目录）
+      filename_topic - 用于文件名的主题文字（默认使用 topic）
 
     返回保存后的完整路径。
     """
@@ -296,7 +299,7 @@ def save_image(img: Image.Image, topic: str, subfolders: list[str] | None = None
     out_dir = os.path.join(OUTPUT_DIR, *folder_parts) if folder_parts else OUTPUT_DIR
     os.makedirs(out_dir, exist_ok=True)
 
-    filename = build_filename(topic)
+    filename = build_filename(filename_topic if filename_topic is not None else topic)
     out_path = os.path.join(out_dir, filename)
     img.save(out_path, "PNG")
 
@@ -314,7 +317,7 @@ def parse_xmind(xmind_path: str) -> list[tuple]:
     所有画布（sheet）和节点（topic）的树形结构。
 
     返回值：
-      [(画布名, 主题文字, 路径片段列表, 落盘目录片段列表, 是否非叶子), ...]
+      [(画布名, 显示用主题文字, 路径片段列表, 落盘目录片段列表, 是否非叶子, 原始标题), ...]
       按文件中原始顺序排列。
 
     跳过规则：
@@ -336,6 +339,9 @@ def parse_xmind(xmind_path: str) -> list[tuple]:
                 return
 
             title     = strip_parenthesized(raw_title)
+            if not title:
+                title = raw_title
+            path_title = raw_title
             children = node.get("children", {}).get("attached", [])
             visible_children = [c for c in children if "You are here" not in c.get("title", "")]
             is_non_leaf = bool(visible_children)
@@ -349,7 +355,7 @@ def parse_xmind(xmind_path: str) -> list[tuple]:
                 # 非叶子结点：
                 #   目录 = 祖先非叶子目录 + 自己
                 #   文件 = 自己（自己目录内）
-                folder_parts = curr_non_leaf_anc + [title]
+                folder_parts = curr_non_leaf_anc + [path_title]
                 child_non_leaf_anc = folder_parts
             else:
                 # 叶子结点：
@@ -359,7 +365,7 @@ def parse_xmind(xmind_path: str) -> list[tuple]:
                 child_non_leaf_anc = curr_non_leaf_anc
 
             if title:
-                results.append((sheet_name, title, curr_path, folder_parts, is_non_leaf))
+                results.append((sheet_name, title, curr_path, folder_parts, is_non_leaf, path_title))
 
             for child in visible_children:
                 walk(child, sheet_name, curr_path, child_non_leaf_anc)
@@ -453,10 +459,10 @@ def main():
             sys.exit(1)
         items  = parse_xmind(args.xmind)
         # 用 dict.fromkeys 去重且保持原始顺序（Python 3.7+ 字典有序）
-        sheets = list(dict.fromkeys(s for s, _, _, _, _ in items))
+        sheets = list(dict.fromkeys(s for s, _, _, _, _, _ in items))
         print(f"共 {len(sheets)} 个画布：")
         for i, name in enumerate(sheets, 1):
-            count = sum(1 for s, _, _, _, _ in items if s == name)
+            count = sum(1 for s, _, _, _, _, _ in items if s == name)
             print(f"  {i:>3}. {name}  ({count} 个主题)")
         return
 
@@ -474,7 +480,7 @@ def main():
             items = [it for it in all_items if it[0] == args.sheet]
             if not items:
                 # 找不到时列出可用画布名，方便用户核对拼写
-                all_sheets = list(dict.fromkeys(s for s, _, _, _, _ in all_items))
+                all_sheets = list(dict.fromkeys(s for s, _, _, _, _, _ in all_items))
                 print(f"[ERROR] 未找到名为「{args.sheet}」的画布。")
                 print("        可用的画布名称（可用 --list-sheets 查看完整列表）：")
                 for name in all_sheets:
@@ -484,7 +490,7 @@ def main():
         else:
             # 未指定 --sheet，处理全部画布
             items  = all_items
-            sheets = list(dict.fromkeys(s for s, _, _, _, _ in items))
+            sheets = list(dict.fromkeys(s for s, _, _, _, _, _ in items))
             print(f"处理全部 {len(sheets)} 个画布，共 {len(items)} 个主题\n")
 
         if args.path:
@@ -496,10 +502,10 @@ def main():
             items = filtered
             print(f"路径过滤：{'/'.join(matched_prefix)}，命中 {len(items)} 个主题\n")
 
-        for sheet, topic, _, folder_parts, _ in items:
-            img = make_image(topic, font)
+        for sheet, topic, _, folder_parts, _, raw_title in items:
+            img = make_image(topic, font)  # 图片显示用短标题
             # 这里做“画布目录 + 树目录”的首层去重（避免 法学/法学）
-            save_image(img, topic, subfolders=merge_sheet_and_tree_folders(sheet, folder_parts))
+            save_image(img, topic, subfolders=merge_sheet_and_tree_folders(sheet, folder_parts), filename_topic=raw_title)
 
         print(f"\n全部完成，共生成 {len(items)} 张图片。")
         return

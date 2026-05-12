@@ -150,8 +150,8 @@ def merge_cover_folders(sheet_name: str, tree_folders: list[str]) -> list[str]:
     parts = [sheet_name, *(tree_folders or [])]
     parts = [p for p in parts if p]
     if len(parts) >= 2:
-        left = cover_sanitize(strip_parenthesized(parts[0]) or parts[0])
-        right = cover_sanitize(strip_parenthesized(parts[1]) or parts[1])
+        left = cover_sanitize(parts[0])
+        right = cover_sanitize(parts[1])
         if left == right:
             parts.pop(1)
     return parts
@@ -450,9 +450,9 @@ def build_map_stem(node: TopicNode) -> Path:
 
 def build_cover_stem(node: TopicNode) -> Path:
     path_nodes = node.path_nodes()
-    folder_parts_clean = [item.clean_title for item in path_nodes if item.is_non_leaf]
-    merged = merge_cover_folders(node.sheet_name, folder_parts_clean)
-    return Path("covers", *[cover_sanitize(part) for part in merged], cover_filename_base(node.clean_title))
+    folder_parts_raw = [item.raw_title for item in path_nodes if item.is_non_leaf]
+    merged = merge_cover_folders(node.sheet_name, folder_parts_raw)
+    return Path("covers", *[cover_sanitize(part) for part in merged], cover_filename_base(node.raw_title))
 
 
 def find_asset_path(repo_root: Path, stem: Path) -> Path | None:
