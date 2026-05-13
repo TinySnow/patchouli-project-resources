@@ -39,7 +39,7 @@ from typing import Iterable
 
 DEFAULT_BASE_URL = (
     "https://raw.githubusercontent.com/"
-    "TinySnow/GithubImageHosting/main/blog/patchouli-project"
+    "TinySnow/patchouli-project-resources/master"
 )
 SUPPORTED_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 DEFAULT_DESIGNER_LINE = "> 设计师 | 南国微雪"
@@ -455,9 +455,10 @@ def build_cover_stem(node: TopicNode) -> Path:
     return Path("covers", *[cover_sanitize(part) for part in merged], cover_filename_base(node.raw_title))
 
 
-def find_asset_path(repo_root: Path, stem: Path) -> Path | None:
+def find_asset_path(repo_root: Path, stem: Path, assets_root: Path | None = None) -> Path | None:
+    root = assets_root if assets_root is not None else repo_root
     for ext in SUPPORTED_EXTS:
-        candidate = repo_root / f"{stem}{ext}"
+        candidate = root / f"{stem}{ext}"
         if candidate.exists():
             return candidate
     return None
@@ -808,6 +809,7 @@ def process_file(
     roots: list[TopicNode],
     base_url: str,
     write: bool,
+    assets_root: Path | None = None,
 ) -> tuple[str, list[SectionChange], list[str]]:
     """
     处理单篇文章。
@@ -830,8 +832,8 @@ def process_file(
     if node is None:
         return "skipped", [], ["无法通过 `本文讨论` 或文件路径在 XMind 中定位主题"]
 
-    map_asset = find_asset_path(repo_root, build_map_stem(node))
-    cover_asset = find_asset_path(repo_root, build_cover_stem(node))
+    map_asset = find_asset_path(repo_root, build_map_stem(node), assets_root)
+    cover_asset = find_asset_path(repo_root, build_cover_stem(node), assets_root)
     if map_asset is None:
         warnings.append("未找到对应的路径图文件")
     if cover_asset is None:
@@ -840,14 +842,17 @@ def process_file(
         return "skipped", [], warnings
 
     # 先把本地图片路径换算成最终 GitHub Raw URL。
+    # 构建 URL（相对路径基准为 assets_root 或 repo_root）
+    url_base = assets_root if assets_root is not None else repo_root
+
     map_url = None
     if map_asset is not None:
-        rel_map = map_asset.relative_to(repo_root)
+        rel_map = map_asset.relative_to(url_base)
         map_url = path_to_url(base_url, rel_map)
 
     cover_url = None
     if cover_asset is not None:
-        rel_cover = cover_asset.relative_to(repo_root)
+        rel_cover = cover_asset.relative_to(url_base)
         cover_url = path_to_url(base_url, rel_cover)
 
     updated = content
@@ -930,9 +935,15 @@ def main() -> int:
         default=DEFAULT_BASE_URL,
         help="GitHub Raw URL 的前缀",
     )
+    parser.add_argument(
+        "--assets-root",
+        default=None,
+        help="covers/maps 资源目录（默认同 --repo-root）",
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
+    assets_root = Path(args.assets_root).resolve() if args.assets_root else None
     xmind_path = Path(args.xmind)
     if not xmind_path.is_absolute():
         xmind_path = repo_root / xmind_path
@@ -971,6 +982,7 @@ def main() -> int:
             roots=roots,
             base_url=args.base_url,
             write=args.write,
+            assets_root=assets_root,
         )
 
         rel_path = article_path.relative_to(repo_root)
